@@ -72,7 +72,6 @@ app.post("/extract", async (req, res) => {
           Key: s3Key,
           Body: buffer,
           ContentType: "image/jpeg",
-          ACL: "public-read", // ou private selon tes règles
         })
         .promise();
 
