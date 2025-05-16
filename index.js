@@ -51,9 +51,9 @@ app.post("/extract", async (req, res) => {
       writer.on("error", reject);
     });
 
-    // 2. Découper la vidéo avec FFmpeg (1 image toutes les 5 secondes)
+    // 2. Découper la vidéo avec FFmpeg (1 image toutes les 5 secondes, en partant de )
     const framePattern = `/tmp/frame-%03d.jpg`;
-    execSync(`ffmpeg -i ${videoTempPath} -vf fps=1/5 ${framePattern}`);
+    execSync(`ffmpeg -ss 2 -i ${videoTempPath} -vf fps=1/5 ${framePattern}`);
 
     // 3. Lire les images générées
     const frames = fs
