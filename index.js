@@ -7,17 +7,6 @@ const { v4: uuidv4 } = require("uuid");
 const app = express();
 const port = process.env.PORT || 10000;
 
-const hasAudio = (videoPath) => {
-  try {
-    const result = execSync(
-      `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 ${videoPath}`
-    ).toString().trim();
-    return result.includes("audio");
-  } catch {
-    return false;
-  }
-};
-
 app.use(express.json());
 
 // AWS S3 config
@@ -62,16 +51,18 @@ app.post("/extract", async (req, res) => {
       writer.on("error", reject);
     });
 
-    // 2. Obtenir la durée
-    const durationOutput = execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${videoTempPath}`);
-    const duration = parseFloat(durationOutput.toString().trim());
+// 2. Obtenir la durée + détection audio via un seul ffprobe
+const ffprobeOutput = execSync(
+  `ffprobe -v error -show_entries format=duration,stream=codec_type -of json ${videoTempPath}`
+).toString();
 
-    if (isNaN(duration)) {
-      throw new Error("Impossible de lire la durée de la vidéo.");
-    }
+const ffprobeData = JSON.parse(ffprobeOutput);
+const duration = parseFloat(ffprobeData.format?.duration || "0");
+const audioDetected = (ffprobeData.streams || []).some(s => s.codec_type === "audio");
 
-    //2.1 AUdio présent ?
-    const audioDetected = hasAudio(videoTempPath);
+if (isNaN(duration) || duration === 0) {
+  throw new Error("Durée vidéo invalide ou inaccessible.");
+}
 
     // 3. Calculer l'espacement optimal
     const interval = Math.max(duration / 12, 5);
