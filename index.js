@@ -28,16 +28,16 @@ app.post("/extract", async (req, res) => {
     return res.status(400).json({ error: "video_url manquant" });
   }
 
-  // Vérifier l'extension
   const ext = video_url.split(".").pop().toLowerCase();
   if (!["mp4", "webm", "mov"].includes(ext)) {
     return res.status(400).json({ error: "Format vidéo non supporté" });
   }
 
-  try {
-    const videoTempPath = `/tmp/input-${uuidv4()}.${ext}`;
+  const videoTempPath = `/tmp/input-${uuidv4()}.${ext}`;
+  const framePattern = `/tmp/frame-%03d.jpg`;
 
-    // 1. Télécharger la vidéo depuis S3
+  try {
+    // 1. Télécharger la vidéo
     const response = await axios({
       method: "GET",
       url: video_url,
@@ -51,11 +51,21 @@ app.post("/extract", async (req, res) => {
       writer.on("error", reject);
     });
 
-    // 2. Découper la vidéo avec FFmpeg (1 image toutes les 5 secondes, en partant de )
-    const framePattern = `/tmp/frame-%03d.jpg`;
-    execSync(`ffmpeg -ss 2 -i ${videoTempPath} -vf fps=1/5 ${framePattern}`);
+    // 2. Obtenir la durée
+    const durationOutput = execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${videoTempPath}`);
+    const duration = parseFloat(durationOutput.toString().trim());
 
-    // 3. Lire les images générées
+    if (isNaN(duration)) {
+      throw new Error("Impossible de lire la durée de la vidéo.");
+    }
+
+    // 3. Calculer l'espacement optimal
+    const interval = Math.max(duration / 12, 5);
+
+    // 4. Extraire les images
+    execSync(`ffmpeg -ss 2 -i ${videoTempPath} -vf fps=1/${interval} -frames:v 12 ${framePattern}`);
+
+    // 5. Lire et uploader les images
     const frames = fs
       .readdirSync("/tmp")
       .filter((f) => f.startsWith("frame-") && f.endsWith(".jpg"));
@@ -78,7 +88,20 @@ app.post("/extract", async (req, res) => {
       urls.push(`https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${s3Key}`);
     }
 
+    // 6. Nettoyage
+    if (fs.existsSync(videoTempPath)) {
+      fs.unlinkSync(videoTempPath);
+    }
+
+    frames.forEach((file) => {
+      const path = `/tmp/${file}`;
+      if (fs.existsSync(path)) {
+        fs.unlinkSync(path);
+      }
+    });
+
     res.json({ frames: urls });
+
   } catch (err) {
     console.error("Erreur traitement FFmpeg :", err);
     res.status(500).json({ error: "Erreur lors du traitement vidéo." });
