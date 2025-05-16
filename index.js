@@ -7,6 +7,17 @@ const { v4: uuidv4 } = require("uuid");
 const app = express();
 const port = process.env.PORT || 10000;
 
+const hasAudio = (videoPath) => {
+  try {
+    const result = execSync(
+      `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 ${videoPath}`
+    ).toString().trim();
+    return result.includes("audio");
+  } catch {
+    return false;
+  }
+};
+
 app.use(express.json());
 
 // AWS S3 config
@@ -59,6 +70,9 @@ app.post("/extract", async (req, res) => {
       throw new Error("Impossible de lire la durée de la vidéo.");
     }
 
+    //2.1 AUdio présent ?
+    const audioDetected = hasAudio(videoTempPath);
+
     // 3. Calculer l'espacement optimal
     const interval = Math.max(duration / 12, 5);
 
@@ -100,7 +114,7 @@ app.post("/extract", async (req, res) => {
       }
     });
 
-    res.json({ frames: urls });
+    res.json({ frames: urls, audio_detected: audioDetected });
 
   } catch (err) {
     console.error("Erreur traitement FFmpeg :", err);
